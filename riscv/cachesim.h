@@ -75,6 +75,16 @@ class fa_cache_sim_t : public cache_sim_t
   std::map<uint64_t, uint64_t> tags;
 };
 
+class linear_evict_cache_sim_t : public cache_sim_t
+{
+ public:
+  linear_evict_cache_sim_t(size_t sets, size_t ways, size_t linesz, const char* name);
+  uint64_t victimize(uint64_t addr);
+
+ protected:
+  std::map<size_t, size_t> evict_candidate;
+};
+
 class cache_memtracer_t : public memtracer_t
 {
  public:

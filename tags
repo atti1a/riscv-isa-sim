@@ -959,7 +959,7 @@ JTAG_DTM_H	riscv/jtag_dtm.h	2;"	d
 JUMP_TARGET	riscv/decode.h	176;"	d
 JUMP_TARGET	riscv/insns/jal.h	/^set_pc(JUMP_TARGET);$/;"	v
 LD	build/Makefile	/^LD            := $(CXX)$/;"	m
-LDFLAGS	build/Makefile	/^LDFLAGS       := -L\/opt\/riscv\/\/lib $/;"	m
+LDFLAGS	build/Makefile	/^LDFLAGS       := -L\/opt\/riscv\/lib $/;"	m
 LIBS	build/Makefile	/^LIBS          := -lpthread -lfesvr -ldl $/;"	m
 LINK	build/Makefile	/^LINK          := $(LD) -L. $(LDFLAGS) -Wl,-rpath,$(install_libs_dir) $(patsubst -L%,-Wl$(comma)-rpath$(comma)%,$(filter -L%,$(LDFLAGS)))$/;"	m
 LITTLEENDIAN	softfloat/platform.h	39;"	d
@@ -2197,6 +2197,7 @@ enter_debug_mode	riscv/processor.cc	/^void processor_t::enter_debug_mode(uint8_t
 entry	debug_rom/debug_rom.S	/^entry:$/;"	l
 entry_loop	debug_rom/debug_rom.S	/^entry_loop:$/;"	l
 error	riscv/debug_module.h	/^  unsigned error;$/;"	m	struct:__anon13
+evict_candidate	riscv/cachesim.h	/^  std::map<size_t, size_t> evict_candidate;$/;"	m	class:linear_evict_cache_sim_t
 exception	debug_rom/debug_rom.S	/^exception:$/;"	l
 execute	riscv/processor.h	/^  bool execute;$/;"	m	struct:__anon19
 execute.cc	riscv/execute.cc	1;"	F
@@ -2911,6 +2912,8 @@ lhs	riscv/insns/remw.h	/^sreg_t lhs = sext32(RS1);$/;"	v
 lhu.cc	build/lhu.cc	1;"	F
 lhu.h	riscv/insns/lhu.h	1;"	F
 likely	riscv/common.h	6;"	d
+linear_evict_cache_sim_t	riscv/cachesim.cc	/^linear_evict_cache_sim_t::linear_evict_cache_sim_t(size_t sets,$/;"	f	class:linear_evict_cache_sim_t
+linear_evict_cache_sim_t	riscv/cachesim.h	/^class linear_evict_cache_sim_t : public cache_sim_t$/;"	c
 linesz	riscv/cachesim.h	/^  size_t linesz;$/;"	m	class:cache_sim_t
 list	riscv/memtracer.h	/^  std::vector<memtracer_t*> list;$/;"	m	class:memtracer_list_t
 load	riscv/clint.cc	/^bool clint_t::load(reg_t addr, size_t len, uint8_t* bytes)$/;"	f	class:clint_t
@@ -4316,6 +4319,7 @@ version	riscv/debug_module.h	/^  unsigned version;$/;"	m	struct:__anon10
 version	riscv/debug_module.h	/^  unsigned version;$/;"	m	struct:__anon13
 victimize	riscv/cachesim.cc	/^uint64_t cache_sim_t::victimize(uint64_t addr)$/;"	f	class:cache_sim_t
 victimize	riscv/cachesim.cc	/^uint64_t fa_cache_sim_t::victimize(uint64_t addr)$/;"	f	class:fa_cache_sim_t
+victimize	riscv/cachesim.cc	/^uint64_t linear_evict_cache_sim_t::victimize(uint64_t addr)$/;"	f	class:linear_evict_cache_sim_t
 vm_info	riscv/mmu.h	/^struct vm_info {$/;"	s
 wait	tests/testlib.py	/^    def wait(self):$/;"	m	class:Gdb
 wait	tests/testlib.py	/^    def wait(self, *args, **kwargs):$/;"	m	class:Spike

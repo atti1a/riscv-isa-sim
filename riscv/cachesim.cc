@@ -27,11 +27,21 @@ cache_sim_t* cache_sim_t::construct(const char* config, const char* name)
   if (!wp++) help();
   const char* bp = strchr(wp, ':');
   if (!bp++) help();
+  const char *type = strchr(bp, ':');
+  if(type) type++;
 
   size_t sets = atoi(std::string(config, wp).c_str());
   size_t ways = atoi(std::string(wp, bp).c_str());
-  size_t linesz = atoi(bp);
+  size_t linesz;
+  if(type) {
+      linesz = atoi(std::string(bp, type).c_str());
+  }
+  else {
+      linesz = atoi(bp);
+  }
 
+  if(type && !strcmp(type, "linear")) 
+    return new linear_evict_cache_sim_t(sets, ways, linesz, name);
   if (ways > 4 /* empirical */ && sets == 1)
     return new fa_cache_sim_t(ways, linesz, name);
   return new cache_sim_t(sets, ways, linesz, name);
@@ -182,4 +192,21 @@ uint64_t fa_cache_sim_t::victimize(uint64_t addr)
   }
   tags[addr >> idx_shift] = (addr >> idx_shift) | VALID;
   return old_tag;
+}
+
+linear_evict_cache_sim_t::linear_evict_cache_sim_t(size_t sets,
+    size_t ways, size_t linesz, const char* name)
+  : cache_sim_t(sets, ways, linesz, name), evict_candidate()
+{
+    std::cout << "Linear Evict Cache Simulator" << std::endl;
+}
+
+uint64_t linear_evict_cache_sim_t::victimize(uint64_t addr)
+{
+  size_t idx = (addr >> idx_shift) & (sets-1);
+  size_t way = evict_candidate[idx];
+  evict_candidate[idx] = (evict_candidate[idx] + 1) % ways;
+  uint64_t victim = tags[idx*ways + way];
+  tags[idx*ways + way] = (addr >> idx_shift) | VALID;
+  return victim;
 }
