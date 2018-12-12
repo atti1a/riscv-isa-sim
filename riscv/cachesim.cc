@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>
+#include <assert.h>
 
 cache_sim_t::cache_sim_t(size_t _sets, size_t _ways, size_t _linesz, const char* _name)
 : sets(_sets), ways(_ways), linesz(_linesz), name(_name), log(false)
@@ -44,6 +45,8 @@ cache_sim_t* cache_sim_t::construct(const char* config, const char* name)
     return new linear_evict_cache_sim_t(sets, ways, linesz, name);
   if(type && !strcmp(type, "hawkeye")) 
     return new hawkeye_cache_sim_t(sets, ways, linesz, name);
+  if(type && !strcmp(type, "lru")) 
+    return new lru_cache_sim_t(sets, ways, linesz, name);
   if (ways > 4 /* empirical */ && sets == 1)
     return new fa_cache_sim_t(ways, linesz, name);
   return new cache_sim_t(sets, ways, linesz, name);
@@ -392,6 +395,60 @@ uint64_t* hawkeye_cache_sim_t::check_tag(uint64_t addr) {
   }
 
   return cache_sim_t::check_tag(addr);
+}
+
+lru_cache_sim_t::lru_cache_sim_t(size_t sets, size_t ways, size_t linesz, const
+        char* name)
+  : cache_sim_t(sets, ways, linesz, name), set_queues() {
+      std::cout << "LRU CRP" << std::endl;
+  }
+
+uint64_t* lru_cache_sim_t::check_tag(uint64_t addr) 
+{
+    std::cout << "check_tag" << std::endl;
+    uint64_t *line = cache_sim_t::check_tag(addr);
+    size_t idx = (addr >> idx_shift) & (sets-1);
+    size_t tag = (addr >> idx_shift) | VALID;
+
+    if(line) {
+      set_queues[idx].remove(tag);
+    }
+    set_queues[idx].push_back(tag);
+
+    /* for(auto l = set_queues.begin(); l != set_queues.end(); l++) { */
+    /*     std::cout << l->first << std::endl; */
+    /* } */
+
+    return line;
+}
+
+uint64_t lru_cache_sim_t::victimize(uint64_t addr) {
+
+  std::cout << "victimize" << std::endl;
+
+  size_t idx = (addr >> idx_shift) & (sets-1);
+
+  ssize_t way = -1;
+
+  if(set_queues[idx].size() < ways) {
+      way = set_queues[idx].size();
+  }
+  else {
+      uint64_t tag = set_queues[idx].front();
+      set_queues[idx].pop_front();
+
+      for (ssize_t i = 0; i < (ssize_t)ways; i++)
+        if (tag == (tags[idx*ways + i] & ~DIRTY))
+            way = i;
+  }
+
+  assert(way != -1);
+
+  uint64_t victim = tags[idx*ways + way];
+  tags[idx*ways + way] = (addr >> idx_shift) | VALID;
+
+
+  return victim;
 }
 
 linear_evict_cache_sim_t::linear_evict_cache_sim_t(size_t sets,

@@ -10,6 +10,8 @@
 #include <cstring>
 #include <string>
 #include <map>
+#include <unordered_map>
+#include <list>
 #include <cstdint>
 
 class lfsr_t
@@ -98,6 +100,16 @@ protected:
   uint64_t *perset_timer;
   HAWKEYE_PC_PREDICTOR *demand_predictor;  // Predictor
   std::vector<std::map<uint64_t, ADDR_INFO> > addr_history; // Samplers
+};
+
+class lru_cache_sim_t : public cache_sim_t
+{
+public:
+  lru_cache_sim_t(size_t sets, size_t ways, size_t linesz, const char* name);
+  uint64_t* check_tag(uint64_t addr);
+  uint64_t victimize(uint64_t addr);
+protected:
+  unordered_map<uint64_t, list<uint64_t>> set_queues;
 };
 
 class linear_evict_cache_sim_t : public cache_sim_t
