@@ -5,6 +5,8 @@
 
 #include "processor.h"
 #include "memtracer.h"
+#include "optgen.h"
+#include "hawkeye_predictor.h"
 #include <cstring>
 #include <string>
 #include <map>
@@ -76,6 +78,26 @@ class fa_cache_sim_t : public cache_sim_t
  private:
   static bool cmp(uint64_t a, uint64_t b);
   std::map<uint64_t, uint64_t> tags;
+};
+
+class hawkeye_cache_sim_t : public cache_sim_t
+{
+public:
+  hawkeye_cache_sim_t(size_t sets, size_t ways, size_t linesz, const char* name);
+  uint64_t* check_tag(uint64_t addr);
+  uint64_t victimize(uint64_t addr);
+protected:
+  static const uint32_t MAX_RRPV = 7;
+
+  void replace_addr_history_element(unsigned int sampler_set);
+  void update_addr_history_lru(unsigned int sampler_set, unsigned int curr_lru);
+
+  uint32_t **rrpv;
+  uint64_t **signatures;
+  OPTgen *perset_optgen;
+  uint64_t *perset_timer;
+  HAWKEYE_PC_PREDICTOR *demand_predictor;  // Predictor
+  std::vector<std::map<uint64_t, ADDR_INFO> > addr_history; // Samplers
 };
 
 class linear_evict_cache_sim_t : public cache_sim_t

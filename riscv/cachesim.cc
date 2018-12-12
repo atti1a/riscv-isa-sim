@@ -42,6 +42,8 @@ cache_sim_t* cache_sim_t::construct(const char* config, const char* name)
 
   if(type && !strcmp(type, "linear")) 
     return new linear_evict_cache_sim_t(sets, ways, linesz, name);
+  if(type && !strcmp(type, "hawkeye")) 
+    return new hawkeye_cache_sim_t(sets, ways, linesz, name);
   if (ways > 4 /* empirical */ && sets == 1)
     return new fa_cache_sim_t(ways, linesz, name);
   return new cache_sim_t(sets, ways, linesz, name);
@@ -192,6 +194,204 @@ uint64_t fa_cache_sim_t::victimize(uint64_t addr)
   }
   tags[addr >> idx_shift] = (addr >> idx_shift) | VALID;
   return old_tag;
+}
+
+hawkeye_cache_sim_t::hawkeye_cache_sim_t(size_t sets, size_t ways, size_t linesz, const char* name):
+cache_sim_t(sets, ways, linesz, name), addr_history() {
+  rrpv = new uint32_t*[sets];
+  for (size_t i = 0; i < sets; i++){
+    rrpv[i] = new uint32_t[ways];
+  }
+  signatures = new uint64_t*[sets];
+  for (size_t i = 0; i < sets; i++){
+    signatures[i] = new uint64_t[ways];
+  }
+
+  perset_optgen = new OPTgen[sets];
+  perset_timer = new uint64_t[sets];
+  demand_predictor = new HAWKEYE_PC_PREDICTOR();
+
+  addr_history.resize(sets);
+  for (size_t i=0; i<sets; i++) 
+    addr_history[i].clear();
+
+  for (size_t i=0; i<sets; i++) {
+      for (size_t j=0; j<ways; j++) {
+          rrpv[i][j] = MAX_RRPV;
+          signatures[i][j] = 0;
+      }
+      perset_timer[i] = 0;
+      perset_optgen[i].init(ways-2);
+  }
+
+}
+
+uint64_t hawkeye_cache_sim_t::victimize(uint64_t addr) {
+  size_t set = (addr >> idx_shift) & (sets-1);
+  // look for the MAX_RRPV line
+  for (uint32_t i=0; i<ways; i++) {
+    if (rrpv[set][i] == MAX_RRPV) {
+      uint64_t victim = tags[set*ways + i];
+      tags[set*ways + i] = (addr >> idx_shift) | VALID;
+      return victim;
+    }
+  }
+
+  //If we cannot find a cache-averse line, we evict the oldest cache-friendly line
+  uint32_t max_rrip = 0;
+  int32_t lru_victim = -1;
+  for (uint32_t i=0; i<ways; i++)
+  {
+      if (rrpv[set][i] >= max_rrip)
+      {
+          max_rrip = rrpv[set][i];
+          lru_victim = i;
+      }
+  }
+
+  uint64_t victim = tags[set*ways + lru_victim];
+  tags[set*ways + lru_victim] = (addr >> idx_shift) | VALID;
+
+  // Catch up on updating
+  uint64_t PC = proc->get_state()->pc;
+  bool new_prediction = demand_predictor->get_prediction (PC);
+  int32_t way = lru_victim;
+  signatures[set][way] = PC;
+  //Set RRIP values and age cache-friendly line
+  if(!new_prediction)
+      rrpv[set][way] = MAX_RRPV;
+  else
+  {
+      rrpv[set][way] = 0;
+      bool saturated = false;
+      for(uint32_t i=0; i<ways; i++)
+          if (rrpv[set][i] == MAX_RRPV-1)
+              saturated = true;
+
+      //Age all the cache-friendly  lines
+      for(uint32_t i=0; i<ways; i++)
+      {
+          if (!saturated && rrpv[set][i] < MAX_RRPV-1)
+              rrpv[set][i]++;
+      }
+      rrpv[set][way] = 0;
+  }
+
+  //The predictor is trained negatively on LRU evictions
+  demand_predictor->decrement(signatures[set][lru_victim]);
+
+  return victim;
+}
+
+void hawkeye_cache_sim_t::replace_addr_history_element(unsigned int sampler_set)
+{
+    uint64_t lru_addr = 0;
+    
+    for(map<uint64_t, ADDR_INFO>::iterator it=addr_history[sampler_set].begin(); it != addr_history[sampler_set].end(); it++)
+    {
+   //     uint64_t timer = (it->second).last_quanta;
+
+        if((it->second).lru == (ways-1))
+        {
+            //lru_time =  (it->second).last_quanta;
+            lru_addr = it->first;
+            break;
+        }
+    }
+
+    addr_history[sampler_set].erase(lru_addr);
+}
+
+void hawkeye_cache_sim_t::update_addr_history_lru(unsigned int sampler_set, unsigned int curr_lru)
+{
+    for(map<uint64_t, ADDR_INFO>::iterator it=addr_history[sampler_set].begin(); it != addr_history[sampler_set].end(); it++)
+    {
+        if((it->second).lru < curr_lru)
+        {
+            (it->second).lru++;
+        }
+    }
+}
+
+
+uint64_t* hawkeye_cache_sim_t::check_tag(uint64_t addr) {
+  size_t set = (addr >> idx_shift) & (sets-1);
+  uint64_t PC = proc->get_state()->pc;
+  
+  //The current timestep 
+  uint64_t curr_quanta = perset_timer[set] % OPTGEN_VECTOR_SIZE;
+
+  uint32_t sampler_set = (addr >> idx_shift) & (sets-1);
+  uint64_t sampler_tag = (addr >> idx_shift) | VALID;
+
+  // This line has been used before. Since the right end of a usage interval is always 
+  //a demand, ignore prefetches
+  if (addr_history[sampler_set].find(sampler_tag) != addr_history[sampler_set].end())
+  {
+      unsigned int curr_timer = perset_timer[set];
+      if(curr_timer < addr_history[sampler_set][sampler_tag].last_quanta)
+         curr_timer = curr_timer + TIMER_SIZE;
+      bool wrap =  ((curr_timer - addr_history[sampler_set][sampler_tag].last_quanta) > OPTGEN_VECTOR_SIZE);
+      uint64_t last_quanta = addr_history[sampler_set][sampler_tag].last_quanta % OPTGEN_VECTOR_SIZE;
+      //and for prefetch hits, we train the last prefetch trigger PC
+      if( !wrap && perset_optgen[set].should_cache(curr_quanta, last_quanta))
+      {
+        demand_predictor->increment(addr_history[sampler_set][sampler_tag].PC);
+      }
+      else
+      {
+        demand_predictor->decrement(addr_history[sampler_set][sampler_tag].PC);
+      }
+      //Some maintenance operations for OPTgen
+      perset_optgen[set].add_access(curr_quanta);
+      update_addr_history_lru(sampler_set, addr_history[sampler_set][sampler_tag].lru);
+  }
+  // This is the first time we are seeing this line (could be demand or prefetch)
+  else if(addr_history[sampler_set].find(sampler_tag) == addr_history[sampler_set].end())
+  {
+      // Find a victim from the sampled cache if we are sampling
+      if(addr_history[sampler_set].size() == ways) 
+          replace_addr_history_element(sampler_set);
+
+      //Initialize a new entry in the sampler
+      addr_history[sampler_set][sampler_tag].init(curr_quanta);
+      
+      perset_optgen[set].add_access(curr_quanta);
+      update_addr_history_lru(sampler_set, ways-1);
+  }
+  
+  // Get Hawkeye's prediction for this line
+  bool new_prediction = demand_predictor->get_prediction (PC);
+  // Update the sampler with the timestamp, PC and our prediction
+  // For prefetches, the PC will represent the trigger PC
+  addr_history[sampler_set][sampler_tag].update(perset_timer[set], PC, new_prediction);
+  addr_history[sampler_set][sampler_tag].lru = 0;
+  //Increment the set timer
+  perset_timer[set] = (perset_timer[set]+1) % TIMER_SIZE;
+
+  size_t idx = (addr >> idx_shift) & (sets-1);
+  size_t tag = (addr >> idx_shift) | VALID;
+  int way = -1;
+
+  for (size_t i = 0; i < ways; i++)
+    if (tag == (tags[idx*ways + i] & ~DIRTY)) {
+      way = i;
+    }
+
+  // If way is -1, do this in the evict stage instead
+  if (way != -1) {
+    signatures[set][way] = PC;
+
+    //Set RRIP values and age cache-friendly line
+    if(!new_prediction)
+        rrpv[set][way] = MAX_RRPV;
+    else
+    {
+        rrpv[set][way] = 0;
+    }
+  }
+
+  return cache_sim_t::check_tag(addr);
 }
 
 linear_evict_cache_sim_t::linear_evict_cache_sim_t(size_t sets,
