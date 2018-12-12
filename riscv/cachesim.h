@@ -3,6 +3,7 @@
 #ifndef _RISCV_CACHE_SIM_H
 #define _RISCV_CACHE_SIM_H
 
+#include "processor.h"
 #include "memtracer.h"
 #include <cstring>
 #include <string>
@@ -30,6 +31,7 @@ class cache_sim_t
   void print_stats();
   void set_miss_handler(cache_sim_t* mh) { miss_handler = mh; }
   void set_log(bool _log) { log = _log; }
+  void set_proc(processor_t* _proc) {proc = _proc;}
 
   static cache_sim_t* construct(const char* config, const char* name);
 
@@ -42,6 +44,7 @@ class cache_sim_t
 
   lfsr_t lfsr;
   cache_sim_t* miss_handler;
+  processor_t* proc;
 
   size_t sets;
   size_t ways;
@@ -103,6 +106,10 @@ class cache_memtracer_t : public memtracer_t
   void set_log(bool log)
   {
     cache->set_log(log);
+  }
+  void set_proc(processor_t *proc)
+  {
+    cache->set_proc(proc);
   }
 
  protected:

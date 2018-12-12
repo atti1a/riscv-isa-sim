@@ -154,6 +154,11 @@ int main(int argc, char** argv)
   if (!*argv1)
     help();
 
+  if (nprocs > 1) {
+      fprintf(stderr, "For this implementation, multi-core is disabled\n");
+      nprocs = 1;
+  }
+
   sim_t s(isa, nprocs, halted, start_pc, mems, htif_args, std::move(hartids),
       progsize, max_bus_master_bits, require_authentication);
   std::unique_ptr<remote_bitbang_t> remote_bitbang((remote_bitbang_t *) NULL);
@@ -169,16 +174,21 @@ int main(int argc, char** argv)
     return 0;
   }
 
-  if (ic && l2) ic->set_miss_handler(&*l2);
-  if (dc && l2) dc->set_miss_handler(&*l2);
-  if (ic) ic->set_log(log_cache);
-  if (dc) dc->set_log(log_cache);
-  for (size_t i = 0; i < nprocs; i++)
-  {
-    if (ic) s.get_core(i)->get_mmu()->register_memtracer(&*ic);
-    if (dc) s.get_core(i)->get_mmu()->register_memtracer(&*dc);
-    if (extension) s.get_core(i)->register_extension(extension());
+  if (ic) {
+    if (l2) ic->set_miss_handler(&*l2);
+    ic->set_log(log_cache);
+    s.get_core(0)->get_mmu()->register_memtracer(&*ic);
+    ic->set_proc(s.get_core(0));
   }
+
+  if (dc) {
+    if (l2) dc->set_miss_handler(&*l2);
+    dc->set_log(log_cache);
+    s.get_core(0)->get_mmu()->register_memtracer(&*dc);
+    dc->set_proc(s.get_core(0));
+  }
+
+  if (extension) s.get_core(0)->register_extension(extension());
 
   s.set_debug(debug);
   s.set_log(log);
